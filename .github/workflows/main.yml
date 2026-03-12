@@ -3,7 +3,11 @@ name: Build-BlueBubbles-Server
 on:
   push:
     branches: [ master ]
+    tags: [ 'v*' ]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -39,3 +43,11 @@ jobs:
           path: dist/**
           if-no-files-found: error
           retention-days: 14
+      - name: Publish release assets
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: dist/**
+          fail_on_unmatched_files: true
+          generate_release_notes: true
