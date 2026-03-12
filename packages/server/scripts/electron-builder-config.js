@@ -1,5 +1,7 @@
 // NOTE: All paths are relative to the package.json that will be loading this configuration file.
 // Making them relative to the scripts folder will break the commands
+const isUnsignedBuild = process.env.CSC_IDENTITY_AUTO_DISCOVERY === "false";
+
 module.exports = {
     "productName": "BlueBubbles",
     "appId": "com.BlueBubbles.BlueBubbles-Server",
@@ -14,17 +16,6 @@ module.exports = {
     ],
     "mac": {
         "category": "public.app-category.social-networking",
-        "publish": [
-            {
-                "provider": "github",
-                "repo": "bluebubbles-server",
-                "owner": "BlueBubblesApp",
-                "private": false,
-                "channel": "latest",
-                "releaseType": "draft",
-                "vPrefixedTagName": true
-            }
-        ],
         "target": [
             {
                 "target": "dmg",
@@ -34,10 +25,9 @@ module.exports = {
                 ],
             }
         ],
-        "type": "distribution",
         "icon": "../../icons/macos/dock-icon.png",
         "darkModeSupport": true,
-        "hardenedRuntime": true,
+        "hardenedRuntime": !isUnsignedBuild,
         "notarize": false,
         "entitlements": "./scripts/entitlements.mac.plist",
         "entitlementsInherit": "./scripts/entitlements.mac.plist",
@@ -53,6 +43,20 @@ module.exports = {
             "zrok$",
             "cloudflared$"
         ],
+        ...(isUnsignedBuild ? {} : {
+            "publish": [
+                {
+                    "provider": "github",
+                    "repo": "bluebubbles-server",
+                    "owner": "BlueBubblesApp",
+                    "private": false,
+                    "channel": "latest",
+                    "releaseType": "draft",
+                    "vPrefixedTagName": true
+                }
+            ],
+            "type": "distribution"
+        })
     },
     "dmg": {
         "sign": false,
