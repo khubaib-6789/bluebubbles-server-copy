@@ -1273,7 +1273,8 @@ class BlueBubblesServer extends EventEmitter {
         this.iMessageListener = new IMessageListener({
             filePaths: [
                 this.iMessageRepo.dbPath,
-                this.iMessageRepo.dbPathWal
+                this.iMessageRepo.dbPathWal,
+                this.iMessageRepo.dbPathShm
             ],
             cache,
             repo: this.iMessageRepo

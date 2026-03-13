@@ -23,10 +23,13 @@ export class MessageRepository extends Loggable {
 
     dbPathWal: string;
 
+    dbPathShm: string;
+
     constructor() {
         super();
         this.dbPath = `${process.env.HOME}/Library/Messages/chat.db`;
         this.dbPathWal = `${process.env.HOME}/Library/Messages/chat.db-wal`;
+        this.dbPathShm = `${process.env.HOME}/Library/Messages/chat.db-shm`;
         this.db = null;
     }
 

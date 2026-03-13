@@ -19,6 +19,8 @@ export class MultiFileWatcher extends EventEmitter {
 
     private watchers: fs.FSWatcher[] = [];
 
+    private statWatchedFiles: string[] = [];
+
     private previousStats: Record<string, FileStat> = {};
 
     private watchedFileNames: Record<string, string[]> = {};
@@ -46,6 +48,7 @@ export class MultiFileWatcher extends EventEmitter {
             }
 
             this.previousStats[filePath] = this.safeStatSync(filePath);
+            this.watchFileStats(filePath);
 
             if (!watchedDirectories.has(directory)) {
                 watchedDirectories.add(directory);
@@ -73,6 +76,30 @@ export class MultiFileWatcher extends EventEmitter {
         });
 
         this.watchers.push(watcher);
+    }
+
+    // macOS can miss SQLite WAL writes via fs.watch/FSEvents, so also poll file metadata directly.
+    private watchFileStats(filePath: string) {
+        fs.watchFile(
+            filePath,
+            { persistent: false, interval: 500 },
+            (currentStat, prevStat) => {
+                const current = this.normalizeWatchFileStat(currentStat);
+                const prev = this.normalizeWatchFileStat(prevStat);
+
+                if (this.isSameStat(prev, current)) return;
+
+                this.emit("change", {
+                    filePath,
+                    prevStat: prev ? { ...prev } : prev,
+                    currentStat: current ? { ...current } : current
+                });
+
+                this.previousStats[filePath] = current;
+            }
+        );
+
+        this.statWatchedFiles.push(filePath);
     }
 
     // Wait for SQLite to finish the current burst of WAL activity before comparing file stats.
@@ -123,6 +150,17 @@ export class MultiFileWatcher extends EventEmitter {
         }
     }
 
+    private normalizeWatchFileStat(stat: fs.Stats): FileStat {
+        if (!stat) return null;
+
+        // fs.watchFile uses a zeroed Stats object when a file does not exist.
+        if (stat.nlink === 0 && stat.size === 0 && stat.mtimeMs === 0) {
+            return null;
+        }
+
+        return stat;
+    }
+
     private isSameStat(prevStat: FileStat, currentStat: FileStat) {
         if (!prevStat && !currentStat) return true;
         if (!prevStat || !currentStat) return false;
@@ -136,6 +174,12 @@ export class MultiFileWatcher extends EventEmitter {
         }
 
         this.pendingFileChecks = {};
+
+        for (const filePath of this.statWatchedFiles) {
+            fs.unwatchFile(filePath);
+        }
+
+        this.statWatchedFiles = [];
 
         for (const watcher of this.watchers) {
             watcher.close();
