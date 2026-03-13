@@ -1143,6 +1143,9 @@ class BlueBubblesServer extends EventEmitter {
             this.httpService?.socketServer.emit(type, data);
         }
 
+        // Dispatch the webhook immediately so it is not blocked by FCM latency.
+        this.webhookService?.dispatch({ type, data });
+
         // Send notification to devices
         try {
             if (sendFcmMessage && FCMService.getApp()) {
@@ -1160,9 +1163,6 @@ class BlueBubblesServer extends EventEmitter {
             this.logger.debug("Failed to send FCM messages!");
             this.logger.debug(ex);
         }
-
-        // Dispatch the webhook (sometimes it's not initialized)
-        this.webhookService?.dispatch({ type, data });
     }
 
     private getTheme() {

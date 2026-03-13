@@ -15,6 +15,10 @@ export type FileChangeEvent = {
 export class MultiFileWatcher extends EventEmitter {
     tag = "MultiFileWatcher";
 
+    private static readonly FILE_STAT_INTERVAL_MS = 100;
+
+    private static readonly FILE_EVENT_SETTLE_MS = 75;
+
     private readonly filePaths: string[];
 
     private watchers: fs.FSWatcher[] = [];
@@ -82,7 +86,7 @@ export class MultiFileWatcher extends EventEmitter {
     private watchFileStats(filePath: string) {
         fs.watchFile(
             filePath,
-            { persistent: false, interval: 500 },
+            { persistent: false, interval: MultiFileWatcher.FILE_STAT_INTERVAL_MS },
             (currentStat, prevStat) => {
                 const current = this.normalizeWatchFileStat(currentStat);
                 const prev = this.normalizeWatchFileStat(prevStat);
@@ -114,7 +118,7 @@ export class MultiFileWatcher extends EventEmitter {
             this.handleFileEvent(filePath).catch(error => {
                 this.emit("error", error);
             });
-        }, 250);
+        }, MultiFileWatcher.FILE_EVENT_SETTLE_MS);
     }
 
     private async handleFileEvent(filePath: string) {

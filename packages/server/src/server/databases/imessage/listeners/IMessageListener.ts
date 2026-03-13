@@ -9,6 +9,8 @@ import { waitMs } from "@server/helpers/utils";
 export class IMessageListener extends Loggable {
     tag = "IMessageListener";
 
+    private static readonly CHANGE_DEBOUNCE_MS = 100;
+
     stopped: boolean;
 
     filePaths: string[];
@@ -115,7 +117,7 @@ export class IMessageListener extends Loggable {
             this.flushQueuedChanges().catch(error => {
                 this.log.error(`Error flushing queued change events: ${error}`);
             });
-        }, 500);
+        }, IMessageListener.CHANGE_DEBOUNCE_MS);
     }
 
     private async flushQueuedChanges() {
