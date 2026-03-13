@@ -23,6 +23,8 @@ export class MultiFileWatcher extends EventEmitter {
 
     private watchedFileNames: Record<string, string[]> = {};
 
+    private pendingFileChecks: Record<string, NodeJS.Timeout> = {};
+
     constructor(filePaths: string[]) {
         super();
         this.filePaths = filePaths;
@@ -54,7 +56,7 @@ export class MultiFileWatcher extends EventEmitter {
 
     private watchDirectory(directory: string) {
         const watcher = fs.watch(directory, { encoding: "utf8", persistent: false, recursive: false });
-        watcher.on("change", async (_, fileName) => {
+        watcher.on("change", (_, fileName) => {
             const trackedFiles = this.watchedFileNames[directory] ?? [];
             const changedFileName = typeof fileName === "string" ? fileName : null;
             const targets = changedFileName
@@ -62,7 +64,7 @@ export class MultiFileWatcher extends EventEmitter {
                 : trackedFiles;
 
             for (const target of targets) {
-                await this.handleFileEvent(path.join(directory, target));
+                this.queueFileEvent(path.join(directory, target));
             }
         });
 
@@ -71,6 +73,21 @@ export class MultiFileWatcher extends EventEmitter {
         });
 
         this.watchers.push(watcher);
+    }
+
+    // Wait for SQLite to finish the current burst of WAL activity before comparing file stats.
+    private queueFileEvent(filePath: string) {
+        const existingTimer = this.pendingFileChecks[filePath];
+        if (existingTimer) {
+            clearTimeout(existingTimer);
+        }
+
+        this.pendingFileChecks[filePath] = setTimeout(() => {
+            delete this.pendingFileChecks[filePath];
+            this.handleFileEvent(filePath).catch(error => {
+                this.emit("error", error);
+            });
+        }, 250);
     }
 
     private async handleFileEvent(filePath: string) {
@@ -114,6 +131,12 @@ export class MultiFileWatcher extends EventEmitter {
     }
 
     stop() {
+        for (const timer of Object.values(this.pendingFileChecks)) {
+            clearTimeout(timer);
+        }
+
+        this.pendingFileChecks = {};
+
         for (const watcher of this.watchers) {
             watcher.close();
         }

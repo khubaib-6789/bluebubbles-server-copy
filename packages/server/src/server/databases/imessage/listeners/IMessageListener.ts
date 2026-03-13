@@ -1,12 +1,10 @@
 import fs from "fs";
 import { MultiFileWatcher } from "@server/lib/MultiFileWatcher";
-import type { FileChangeEvent } from "@server/lib/MultiFileWatcher";
 import { Loggable } from "@server/lib/logging/Loggable";
 import { Sema } from "async-sema";
 import { IMessageCache, IMessagePoller } from "../pollers";
 import { MessageRepository } from "..";
 import { waitMs } from "@server/helpers/utils";
-import { DebounceSubsequentWithWait } from "@server/lib/decorators/DebounceDecorator";
 
 export class IMessageListener extends Loggable {
     tag = "IMessageListener";
@@ -26,6 +24,12 @@ export class IMessageListener extends Loggable {
     cache: IMessageCache;
 
     lastCheck = 0;
+
+    changeTimer: NodeJS.Timeout | null = null;
+
+    isProcessingChange = false;
+
+    needsFollowUpPass = false;
 
     constructor({
         filePaths,
@@ -48,6 +52,10 @@ export class IMessageListener extends Loggable {
 
     stop() {
         this.stopped = true;
+        this.changeTimer && clearTimeout(this.changeTimer);
+        this.changeTimer = null;
+        this.needsFollowUpPass = false;
+        this.isProcessingChange = false;
         this.watcher?.stop();
         this.removeAllListeners();
     }
@@ -80,8 +88,8 @@ export class IMessageListener extends Loggable {
         await this.poll(new Date(this.lastCheck), false);
 
         this.watcher = new MultiFileWatcher(this.filePaths);
-        this.watcher.on("change", async (event: FileChangeEvent) => {
-            await this.handleChangeEvent(event);
+        this.watcher.on("change", () => {
+            this.queueChangeEvent();
         });
 
         this.watcher.on("error", (error) => {
@@ -92,8 +100,44 @@ export class IMessageListener extends Loggable {
         this.watcher.start();
     }
 
-    @DebounceSubsequentWithWait('IMessageListener.handleChangeEvent', 500)
-    async handleChangeEvent(event: FileChangeEvent) {
+    // SQLite WAL writes can emit multiple filesystem events before the new row is queryable.
+    // Queue a follow-up pass whenever more changes arrive while a debounce window or poll is active.
+    private queueChangeEvent() {
+        if (this.stopped) return;
+
+        if (this.changeTimer || this.isProcessingChange) {
+            this.needsFollowUpPass = true;
+            return;
+        }
+
+        this.changeTimer = setTimeout(() => {
+            this.changeTimer = null;
+            this.flushQueuedChanges().catch(error => {
+                this.log.error(`Error flushing queued change events: ${error}`);
+            });
+        }, 500);
+    }
+
+    private async flushQueuedChanges() {
+        if (this.stopped || this.isProcessingChange) return;
+
+        const shouldScheduleFollowUp = this.needsFollowUpPass;
+        this.needsFollowUpPass = false;
+        this.isProcessingChange = true;
+
+        try {
+            await this.handleChangeEvent();
+        } finally {
+            this.isProcessingChange = false;
+        }
+
+        if (shouldScheduleFollowUp || this.needsFollowUpPass) {
+            this.needsFollowUpPass = false;
+            this.queueChangeEvent();
+        }
+    }
+
+    async handleChangeEvent() {
         await this.processLock.acquire();
         try {
             const now = Date.now();
