@@ -27,7 +27,21 @@ export class IMessageListener extends Loggable {
 
     lastCheck = 0;
 
-    constructor({ filePaths, repo, cache }: { filePaths: string[], repo: MessageRepository, cache: IMessageCache }) {
+    pollIntervalMs: number;
+
+    pollTimer: NodeJS.Timeout | null = null;
+
+    constructor({
+        filePaths,
+        repo,
+        cache,
+        pollIntervalMs
+    }: {
+        filePaths: string[],
+        repo: MessageRepository,
+        cache: IMessageCache,
+        pollIntervalMs?: number
+    }) {
         super();
 
         this.filePaths = filePaths;
@@ -36,10 +50,14 @@ export class IMessageListener extends Loggable {
         this.cache = cache;
         this.stopped = false;
         this.processLock = new Sema(1);
+        this.pollIntervalMs = pollIntervalMs ?? 0;
     }
 
     stop() {
         this.stopped = true;
+        this.pollTimer && clearInterval(this.pollTimer);
+        this.pollTimer = null;
+        this.watcher?.stop();
         this.removeAllListeners();
     }
 
@@ -50,6 +68,8 @@ export class IMessageListener extends Loggable {
     getEarliestModifiedDate() {
         let earliest = new Date();
         for (const filePath of this.filePaths) {
+            if (!fs.existsSync(filePath)) continue;
+
             const stat = fs.statSync(filePath);
             if (stat.mtime < earliest) {
                 earliest = stat.mtime;
@@ -79,6 +99,18 @@ export class IMessageListener extends Loggable {
         });
 
         this.watcher.start();
+
+        if (this.pollIntervalMs > 0) {
+            this.pollTimer = setInterval(() => {
+                this.handleChangeEvent({
+                    filePath: "db-poll-interval",
+                    prevStat: null,
+                    currentStat: null
+                }).catch(error => {
+                    this.log.error(`Error handling interval poll: ${error}`);
+                });
+            }, this.pollIntervalMs);
+        }
     }
 
     @DebounceSubsequentWithWait('IMessageListener.handleChangeEvent', 500)

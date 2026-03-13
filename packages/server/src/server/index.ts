@@ -1118,6 +1118,15 @@ class BlueBubblesServer extends EventEmitter {
             }
         }
 
+        if (prevConfig.db_poll_interval !== nextConfig.db_poll_interval && this.hasDiskAccess) {
+            this.logger.info(
+                `Database poll interval changed from ${prevConfig.db_poll_interval} to ${nextConfig.db_poll_interval}. ` +
+                "Restarting iMessage listeners..."
+            );
+            this.removeChatListeners();
+            await this.startChatListeners();
+        }
+
         // If the password changes, we need to make sure the clients connected to the socket are kicked.
         if (prevConfig.password !== nextConfig.password) {
             this.httpService.kickClients();
@@ -1276,7 +1285,8 @@ class BlueBubblesServer extends EventEmitter {
                 this.iMessageRepo.dbPathWal
             ],
             cache,
-            repo: this.iMessageRepo
+            repo: this.iMessageRepo,
+            pollIntervalMs: Number(this.repo.getConfig("db_poll_interval") ?? 1000)
         });
 
         this.iMessageListener.addPoller(new MessagePoller(this.iMessageRepo, cache));
