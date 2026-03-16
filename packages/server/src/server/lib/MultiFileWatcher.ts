@@ -92,14 +92,7 @@ export class MultiFileWatcher extends EventEmitter {
                 const prev = this.normalizeWatchFileStat(prevStat);
 
                 if (this.isSameStat(prev, current)) return;
-
-                this.emit("change", {
-                    filePath,
-                    prevStat: prev ? { ...prev } : prev,
-                    currentStat: current ? { ...current } : current
-                });
-
-                this.previousStats[filePath] = current;
+                this.queueFileEvent(filePath);
             }
         );
 
